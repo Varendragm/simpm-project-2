@@ -11,20 +11,19 @@
 <script src="{{ asset('js/chart.umd.min.js') }}"></script>
 </head>
 <body>
-
 @if (session('success') || session('error'))
 <div id="flashData" data-success="{{ session('success') }}" data-error="{{ session('error') }}" hidden></div>
 @endif
 
 <div class="app">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-mark">SIM<span>PM</span></div>
       <div class="brand-sub">PG Rendeng · Modul 2</div>
       <div class="brand-link"><span class="sq"></span>Tersinkron dari SIPPM</div>
     </div>
 
-    <nav class="nav">
+    <nav class="nav" aria-label="Navigasi utama">
       @auth
         @if(auth()->user()->isSupervisor())
           <div class="nav-group-label">Monitoring</div>
@@ -58,39 +57,37 @@
       @endauth
     </nav>
 
-    <div class="sidebar-foot">
-      Data performa &amp; grafik diperbarui otomatis dari riwayat maintenance SIPPM.
-    </div>
+    <div class="sidebar-foot">Data performa &amp; grafik diperbarui otomatis dari riwayat maintenance SIPPM.</div>
   </aside>
 
   <div class="main">
-    <div class="topbar">
-      <div style="display:flex;align-items:center;gap:14px;">
-        <button id="sidebarToggle" class="btn btn-outline btn-sm" style="display:none;">☰</button>
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="sidebarToggle" class="btn btn-outline btn-sm sidebar-toggle" type="button" aria-label="Buka atau tutup menu">☰</button>
         <div>
           <div class="topbar-crumb">{{ ucfirst(auth()->user()->role ?? '') }}</div>
           <div class="topbar-title">@yield('title')</div>
         </div>
       </div>
       <div class="topbar-user">
-        <div style="text-align:right;">
-          <div style="font-weight:600;">{{ auth()->user()->name ?? '' }}</div>
-          <div style="font-size:11px;color:var(--ink-soft);">{{ auth()->user()->sub_role ?? '' }}</div>
+        <div class="topbar-user-info">
+          <div class="topbar-user-name">{{ auth()->user()->name ?? '' }}</div>
+          <div class="topbar-user-role">{{ auth()->user()->sub_role ?? '' }}</div>
         </div>
-        <div class="avatar">{{ auth()->user()->initials() ?? '' }}</div>
+        <div class="avatar">{{ auth()->user()->initials() ?? 'U' }}</div>
         <form method="POST" action="{{ route('logout') }}">
           @csrf
           <button type="submit" class="logout-link">Keluar</button>
         </form>
       </div>
-    </div>
+    </header>
 
-    <div class="content">
+    <main class="content">
       @if ($errors->any())
-        <div class="callout warn">{{ $errors->first() }}</div>
+        <div class="callout warn" role="alert">{{ $errors->first() }}</div>
       @endif
       @yield('content')
-    </div>
+    </main>
   </div>
 </div>
 
