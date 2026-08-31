@@ -13,6 +13,15 @@ class Mesin extends Model
         'downtime_bulan_ini_jam', 'jumlah_perbaikan_bulan_ini', 'status',
     ];
 
+    protected $casts = [
+        'oee' => 'float',
+        'availability' => 'float',
+        'mttr_jam' => 'float',
+        'mtbf_jam' => 'float',
+        'downtime_bulan_ini_jam' => 'float',
+        'jumlah_perbaikan_bulan_ini' => 'integer',
+    ];
+
     public function damageReports()
     {
         return $this->hasMany(DamageReport::class);
@@ -34,6 +43,7 @@ class Mesin extends Model
             'Normal' => 'b-green',
             'Perlu Perhatian' => 'b-red',
             'Dalam Perbaikan' => 'b-amber',
+            default => 'b-gray',
         };
     }
 }
