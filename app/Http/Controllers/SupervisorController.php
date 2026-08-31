@@ -15,20 +15,38 @@ class SupervisorController extends Controller
     {
         $mesinList = Mesin::orderByDesc('downtime_bulan_ini_jam')->get();
 
-        $oeeRata = round($mesinList->avg('oee'));
-        $availRata = round($mesinList->avg('availability'));
-        $mttrRata = round($mesinList->avg('mttr_jam'), 1);
-        $mtbfRata = round($mesinList->avg('mtbf_jam'));
+        $oeeRata = round((float) $mesinList->avg('oee'));
+        $availRata = round((float) $mesinList->avg('availability'));
+        $mttrRata = round((float) $mesinList->avg('mttr_jam'), 1);
+        $mtbfRata = round((float) $mesinList->avg('mtbf_jam'));
         $perluPerhatian = $mesinList->whereIn('status', ['Perlu Perhatian', 'Dalam Perbaikan'])->count();
 
-        $trenAvailability = KpiTrend::whereNull('mesin_id')->where('periode_tipe', 'mingguan')->orderBy('urutan')->get();
-        $trenDowntimePerMesin = KpiTrend::whereNotNull('mesin_id')->where('periode_tipe', 'bulanan')->with('mesin')->orderBy('urutan')->get()->groupBy('mesin.nama');
+        $trenAvailability = KpiTrend::whereNull('mesin_id')
+            ->where('periode_tipe', 'mingguan')
+            ->orderBy('urutan')
+            ->get();
 
-        $mesinPerluPerhatian = $mesinList->whereIn('status', ['Perlu Perhatian', 'Dalam Perbaikan'])->take(3);
+        $trenDowntimePerMesin = KpiTrend::whereNotNull('mesin_id')
+            ->where('periode_tipe', 'bulanan')
+            ->with('mesin')
+            ->orderBy('urutan')
+            ->get()
+            ->groupBy(fn (KpiTrend $trend) => $trend->mesin?->nama ?? 'Tidak diketahui');
+
+        $mesinPerluPerhatian = $mesinList
+            ->whereIn('status', ['Perlu Perhatian', 'Dalam Perbaikan'])
+            ->take(3);
 
         return view('supervisor.dashboard', compact(
-            'mesinList', 'oeeRata', 'availRata', 'mttrRata', 'mtbfRata',
-            'perluPerhatian', 'trenAvailability', 'trenDowntimePerMesin', 'mesinPerluPerhatian'
+            'mesinList',
+            'oeeRata',
+            'availRata',
+            'mttrRata',
+            'mtbfRata',
+            'perluPerhatian',
+            'trenAvailability',
+            'trenDowntimePerMesin',
+            'mesinPerluPerhatian'
         ));
     }
 
@@ -47,14 +65,19 @@ class SupervisorController extends Controller
 
     public function detailMesin(Mesin $mesin)
     {
-        $riwayat = $mesin->damageReports()->latest('diselesaikan_pada')->take(5)->get();
+        $riwayat = $mesin->damageReports()
+            ->latest('diselesaikan_pada')
+            ->take(5)
+            ->get();
 
         return view('supervisor.detail-mesin', compact('mesin', 'riwayat'));
     }
 
     public function maintenance()
     {
-        $jadwal = MaintenanceSchedule::with(['mesin', 'teknisi'])->orderBy('tanggal')->get();
+        $jadwal = MaintenanceSchedule::with(['mesin', 'teknisi'])
+            ->orderBy('tanggal')
+            ->get();
 
         return view('supervisor.maintenance', compact('jadwal'));
     }
@@ -62,7 +85,10 @@ class SupervisorController extends Controller
     public function jadwalTambahForm()
     {
         $mesinList = Mesin::orderBy('nama')->get();
-        $teknisiList = User::where('role', 'teknisi')->where('is_active', true)->get();
+        $teknisiList = User::where('role', 'teknisi')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get();
 
         return view('supervisor.jadwal-tambah', compact('mesinList', 'teknisiList'));
     }
@@ -71,15 +97,27 @@ class SupervisorController extends Controller
     {
         $data = $request->validate([
             'mesin_id' => 'required|exists:mesin,id',
-            'jenis_pm' => 'required|string',
+            'jenis_pm' => 'required|string|max:255',
             'teknisi_id' => 'required|exists:users,id',
             'tanggal' => 'required|date',
             'interval' => 'required|in:Harian,Mingguan,Bulanan,Tidak Berulang',
-            'estimasi_durasi' => 'nullable|string',
-            'catatan' => 'nullable|string',
+            'estimasi_durasi' => 'nullable|string|max:100',
+            'catatan' => 'nullable|string|max:5000',
         ]);
 
-        $status = \Illuminate\Support\Carbon::parse($data['tanggal'])->isToday() ? 'Jatuh Tempo Hari Ini' : 'Terjadwal';
+        $teknisiValid = User::whereKey($data['teknisi_id'])
+            ->where('role', 'teknisi')
+            ->where('is_active', true)
+            ->exists();
+
+        if (! $teknisiValid) {
+            return back()->withInput()->withErrors([
+                'teknisi_id' => 'Teknisi yang dipilih tidak aktif atau tidak valid.',
+            ]);
+        }
+
+        $tanggal = \Illuminate\Support\Carbon::parse($data['tanggal']);
+        $status = $tanggal->isToday() ? 'Jatuh Tempo Hari Ini' : 'Terjadwal';
 
         MaintenanceSchedule::create([
             ...$data,
@@ -87,7 +125,8 @@ class SupervisorController extends Controller
             'status' => $status,
         ]);
 
-        return redirect()->route('supervisor.maintenance')->with('success', 'Jadwal maintenance preventif berhasil disimpan.');
+        return redirect()->route('supervisor.maintenance')
+            ->with('success', 'Jadwal maintenance preventif berhasil disimpan.');
     }
 
     public function riwayat(Request $request)
@@ -97,6 +136,7 @@ class SupervisorController extends Controller
         if ($request->filled('mesin_id')) {
             $query->where('mesin_id', $request->mesin_id);
         }
+
         if ($request->filled('kategori') && $request->kategori !== 'Semua Kategori') {
             $query->where('kategori', $request->kategori);
         }
@@ -109,15 +149,29 @@ class SupervisorController extends Controller
 
     public function laporan()
     {
-        $trenKategori = KpiTrend::whereNull('mesin_id')->where('periode_tipe', 'bulanan')->orderBy('urutan')->get();
-        $trenDowntimeKumulatif = KpiTrend::whereNull('mesin_id')->where('periode_tipe', 'bulanan')->orderBy('urutan')->get();
-        $komponenSering = DamageReport::selectRaw('komponen_diganti, kategori, count(*) as jumlah')
+        $trenKategori = KpiTrend::whereNull('mesin_id')
+            ->where('periode_tipe', 'bulanan')
+            ->orderBy('urutan')
+            ->get();
+
+        $trenDowntimeKumulatif = KpiTrend::whereNull('mesin_id')
+            ->where('periode_tipe', 'bulanan')
+            ->orderBy('urutan')
+            ->get();
+
+        $komponenSering = DamageReport::whereNotNull('komponen_diganti')
+            ->where('komponen_diganti', '!=', '')
+            ->selectRaw('komponen_diganti, kategori, count(*) as jumlah')
             ->groupBy('komponen_diganti', 'kategori')
             ->orderByDesc('jumlah')
             ->take(3)
             ->get();
 
-        return view('supervisor.laporan', compact('trenKategori', 'trenDowntimeKumulatif', 'komponenSering'));
+        return view('supervisor.laporan', compact(
+            'trenKategori',
+            'trenDowntimeKumulatif',
+            'komponenSering'
+        ));
     }
 
     public function profil()
@@ -127,7 +181,11 @@ class SupervisorController extends Controller
 
     public function profilUpdate(Request $request)
     {
-        $data = $request->validate(['name' => 'required|string', 'no_hp' => 'nullable|string']);
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'no_hp' => 'nullable|string|max:30',
+        ]);
+
         $request->user()->update($data);
 
         return back()->with('success', 'Profil berhasil diperbarui.');

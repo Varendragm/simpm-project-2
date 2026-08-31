@@ -21,10 +21,14 @@ class TeknisiController extends Controller
 
         $stat = [
             'minggu_ini' => MaintenanceSchedule::where('teknisi_id', $user->id)
-                ->whereBetween('tanggal', [now()->startOfWeek(), now()->endOfWeek()])->count(),
-            'jatuh_tempo' => $jadwal->where('status', 'Jatuh Tempo Hari Ini')->count(),
+                ->whereBetween('tanggal', [now()->startOfWeek(), now()->endOfWeek()])
+                ->count(),
+            'jatuh_tempo' => $jadwal->filter(fn (MaintenanceSchedule $schedule) => $schedule->tanggal->isToday())->count(),
             'selesai_bulan_ini' => MaintenanceSchedule::where('teknisi_id', $user->id)
-                ->where('status', 'Selesai')->whereMonth('updated_at', now()->month)->count(),
+                ->where('status', 'Selesai')
+                ->whereMonth('updated_at', now()->month)
+                ->whereYear('updated_at', now()->year)
+                ->count(),
         ];
 
         return view('teknisi.dashboard', compact('jadwal', 'stat'));
@@ -38,13 +42,11 @@ class TeknisiController extends Controller
         return view('teknisi.detail-jadwal', compact('schedule'));
     }
 
-    // Toggle checklist via AJAX — dipanggil dari JS tanpa reload halaman
     public function toggleChecklist(Request $request, MaintenanceChecklist $item)
     {
         $this->authorizeTeknisi($item->schedule);
 
         $item->update(['is_done' => ! $item->is_done]);
-
         $progres = $item->schedule->progresChecklist();
 
         return response()->json([
@@ -57,15 +59,21 @@ class TeknisiController extends Controller
     public function tandaiSelesai(Request $request, MaintenanceSchedule $schedule)
     {
         $this->authorizeTeknisi($schedule);
+        $schedule->load('checklist', 'mesin');
+
+        $progress = $schedule->progresChecklist();
+        if ($progress['total'] > 0 && $progress['selesai'] < $progress['total']) {
+            return back()->with('error', 'Semua checklist harus diselesaikan sebelum maintenance ditandai selesai.');
+        }
 
         $schedule->update(['status' => 'Selesai']);
 
-        return redirect()->route('teknisi.dashboard')->with('success', "Maintenance {$schedule->mesin->nama} ditandai selesai.");
+        return redirect()->route('teknisi.dashboard')
+            ->with('success', "Maintenance {$schedule->mesin->nama} ditandai selesai.");
     }
 
     public function riwayat(Request $request)
     {
-        // Ditampilkan ulang dari SIPPM berdasarkan nama teknisi yang login
         $riwayat = DamageReport::with('mesin')
             ->where('teknisi_nama', $request->user()->name)
             ->latest('diselesaikan_pada')
@@ -78,11 +86,14 @@ class TeknisiController extends Controller
     {
         $user = $request->user();
         $laporanSaya = DamageReport::where('teknisi_nama', $user->name);
+        $rataDowntime = $laporanSaya->avg('downtime_menit');
 
         $stat = [
-            'rata_waktu' => round($laporanSaya->avg('downtime_menit') / 60, 1),
-            'selesai_3bulan' => (clone $laporanSaya)->where('diselesaikan_pada', '>=', now()->subMonths(3))->count(),
-            'mesin_sering' => (clone $laporanSaya)->distinct('mesin_id')->count('mesin_id'),
+            'rata_waktu' => $rataDowntime === null ? 0 : round($rataDowntime / 60, 1),
+            'selesai_3bulan' => (clone $laporanSaya)
+                ->where('diselesaikan_pada', '>=', now()->subMonths(3))
+                ->count(),
+            'mesin_sering' => (clone $laporanSaya)->distinct()->count('mesin_id'),
         ];
 
         return view('teknisi.performa', compact('stat'));
@@ -95,7 +106,12 @@ class TeknisiController extends Controller
 
     public function profilUpdate(Request $request)
     {
-        $data = $request->validate(['name' => 'required|string', 'no_hp' => 'nullable|string', 'sub_role' => 'nullable|string']);
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'no_hp' => 'nullable|string|max:30',
+            'sub_role' => 'nullable|string|max:100',
+        ]);
+
         $request->user()->update($data);
 
         return back()->with('success', 'Profil berhasil diperbarui.');
